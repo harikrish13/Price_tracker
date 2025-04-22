@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Price Comparison Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Price Comparison Tool</h1>
+            <p>Find the best deals across Amazon, Walmart, and Target</p>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="search" placeholder="Enter product name (e.g., headphones, laptop, camera)">
+            <button onclick="fetchPrices()">Compare Prices</button>
+        </div>
+
+        <div id="loading" class="loading">
+            <div class="spinner"></div>
+            <p>Searching for the best prices...</p>
+        </div>
+
+        <div id="results" class="results">
+            <!-- Results will be displayed here -->
+        </div>
+
+        <!-- Price History Modal -->
+        <div id="priceHistoryModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button" onclick="closePriceHistoryModal()">&times;</span>
+                <h2>Price History</h2>
+                <div class="price-history-chart">
+                    <canvas id="priceChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Alert Modal -->
+        <div id="alertModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button" onclick="closeAlertModal()">&times;</span>
+                <h2>Set Price Alert</h2>
+                <div class="alert-form">
+                    <input type="email" id="alertEmail" placeholder="Your email" required>
+                    <input type="number" id="alertTargetPrice" placeholder="Target Price" required step="0.01" min="0">
+                    <button onclick="createAlert()">Set Alert</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store the current product details for alert
+        let currentProduct = null;
+        let priceChart = null;
+
+        async function fetchPrices() {
+            const searchQuery = document.getElementById("search").value;
+            if (!searchQuery) {
+                alert("Please enter a product name!");
+                return;
+            }
+
+            const loading = document.getElementById("loading");
+            const results = document.getElementById("results");
+            
+            loading.style.display = "block";
+            results.innerHTML = "";
+
+            try {
+                const response = await fetch(`http://localhost:8000/search/${encodeURIComponent(searchQuery)}`, {
+                    method: "GET",
+                    headers: {
+                        "Content-Type": "application/json",
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                loading.style.display = "none";
+
+                if (!data.results || data.results.length === 0) {
+                    results.innerHTML = `
+                        <div class="error-message">
+                            <h3>No results found</h3>
+                            <p>Try searching with different keywords</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                // Display results
+                data.results.forEach(product => {
+                    const card = document.createElement("div");
+                    card.className = "store-card";
+                    
+                    card.innerHTML = `
+                        <div class="store-logo">${product.source}</div>
+                        <div class="product-info">
+                            <div class="product-name">${product.title}</div>
+                            <div class="product-price">$${product.price.toFixed(2)}</div>
+                            ${product.rating ? `<div class="product-rating">Rating: ${product.rating}/5 ${product.reviews_count ? `(${product.reviews_count} reviews)` : ''}</div>` : ''}
+                        </div>
+                        <div class="product-actions">
+                            <a href="${product.url}" target="_blank" class="view-deal">View Deal</a>
+                            <button class="price-history-btn" onclick="showPriceHistory('${product.title.replace(/'/g, "\\'")}', ${product.price})">Price History</button>
+                            <button class="set-alert-btn" onclick="showAlertModal('${product.url}', '${product.title.replace(/'/g, "\\'")}', ${product.price})">Set Price Alert</button>
+                        </div>
+                    `;
+                    
+                    results.appendChild(card);
+                });
+
+            } catch (error) {
+                console.error("Error:", error);
+                loading.style.display = "none";
+                results.innerHTML = `
+                    <div class="error-message">
+                        <h3>Error occurred</h3>
+                        <p>Sorry, something went wrong. Please try again later.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function showPriceHistory(productTitle, currentPrice) {
+            const modal = document.getElementById('priceHistoryModal');
+            modal.style.display = "block";
+
+            // Generate mock data for the past 3 months
+            const dates = [];
+            const prices = [];
+            const today = new Date();
+            
+            for (let i = 90; i >= 0; i--) {
+                const date = new Date(today);
+                date.setDate(today.getDate() - i);
+                dates.push(date.toLocaleDateString());
+                
+                // Generate a random price variation within 20% of current price
+                const variation = (Math.random() - 0.5) * 0.4;
+                const price = currentPrice * (1 + variation);
+                prices.push(price.toFixed(2));
+            }
+
+            // Destroy existing chart if it exists
+            if (priceChart) {
+                priceChart.destroy();
+            }
+
+            // Create new chart
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            priceChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: dates,
+                    datasets: [{
+                        label: 'Price History',
+                        data: prices,
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: productTitle,
+                            font: {
+                                size: 16,
+                                weight: 'bold'
+                            }
+                        },
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    return `Price: $${context.raw}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: false,
+                            title: {
+                                display: true,
+                                text: 'Price ($)'
+                            },
+                            ticks: {
+                                callback: function(value) {
+                                    return '$' + value.toFixed(2);
+                                }
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Date'
+                            }
+                        }
+                    },
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    }
+                }
+            });
+        }
+
+        function closePriceHistoryModal() {
+            const modal = document.getElementById('priceHistoryModal');
+            modal.style.display = "none";
+            if (priceChart) {
+                priceChart.destroy();
+                priceChart = null;
+            }
+        }
+
+        function showAlertModal(url, title, currentPrice) {
+            currentProduct = { url, title, currentPrice };
+            document.getElementById('alertTargetPrice').value = (currentPrice * 0.9).toFixed(2);
+            document.getElementById('alertModal').style.display = "block";
+        }
+
+        function closeAlertModal() {
+            document.getElementById('alertModal').style.display = "none";
+        }
+
+        async function createAlert() {
+            if (!currentProduct) return;
+
+            const email = document.getElementById('alertEmail').value;
+            const targetPrice = parseFloat(document.getElementById('alertTargetPrice').value);
+
+            if (!email || !targetPrice) {
+                alert('Please fill in all fields');
+                return;
+            }
+
+            try {
+                const response = await fetch('/alerts/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        user_email: email,
+                        product_url: currentProduct.url,
+                        product_title: currentProduct.title,
+                        target_price: targetPrice
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Price alert created successfully!');
+                    closeAlertModal();
+                } else {
+                    alert('Failed to create price alert');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error creating price alert');
+            }
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const priceHistoryModal = document.getElementById('priceHistoryModal');
+            const alertModal = document.getElementById('alertModal');
+            
+            if (event.target === priceHistoryModal) {
+                closePriceHistoryModal();
+            }
+            if (event.target === alertModal) {
+                closeAlertModal();
+            }
+        }
+
+        // Allow search on Enter key press
+        document.getElementById("search").addEventListener("keypress", function(event) {
+            if (event.key === "Enter") {
+                fetchPrices();
+            }
+        });
+    </script>
+</body>
+</html>
