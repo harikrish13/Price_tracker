@@ -31,7 +31,7 @@ A modern web application that compares product prices across major retailers (Am
 
 1. Clone the repository:
 ```bash
-git clone [repository-url]
+git clone (https://github.com/harikrish13/Price_tracker.git)
 cd price-tracker
 ```
 
